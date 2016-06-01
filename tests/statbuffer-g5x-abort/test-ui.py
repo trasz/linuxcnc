@@ -42,10 +42,18 @@ c.auto(linuxcnc.AUTO_RUN, 0)
 # FIXME: this is lame
 time.sleep(1)
 
+s.poll()
 os.system("halcmd show pin io")
+
+print "sending abort"
+sys.stdout.flush()
 c.abort()
 
 c.wait_complete()
+
+print "send complete"
+sys.stdout.flush()
+
 s.poll()
 os.system("halcmd show pin io")
 
@@ -77,6 +85,9 @@ c.mdi('(debug, G53+#5220; Z#5422) ; Prints "G53+1.0 Z0.0" == G54')
 c.wait_complete()
 err = e.poll()
 print err
+
+print "g-codes:", s.gcodes
+print "settings:", s.settings
 
 if s.g5x_index != 1:
     print "status has wrong g5x index: %d (expected 1)" % s.g5x_index
