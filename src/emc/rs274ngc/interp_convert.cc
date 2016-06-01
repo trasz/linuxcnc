@@ -4091,6 +4091,10 @@ int Interp::convert_stop(block_pointer block,    //!< pointer to a block of RS27
   int length;
 
   double cx, cy, cz;
+
+  printf("%s\n", __func__);
+  fflush(NULL);
+
   comp_get_current(settings, &cx, &cy, &cz);
   CHP(move_endpoint_and_flush(settings, cx, cy));
   dequeue_canons(settings);

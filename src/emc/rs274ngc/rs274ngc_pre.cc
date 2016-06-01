@@ -186,8 +186,8 @@ void Interp::doLog(unsigned int flags, const char *file, int line,
     }
 
     va_start(ap, fmt);
-    vfprintf(log_file, fmt, ap);
-    fflush(log_file);
+    vprintf(fmt, ap);
+    fflush(NULL);
     va_end(ap);
 }
 
@@ -859,7 +859,7 @@ int Interp::init()
 			  getpid(), inistring);
 	      }
           } else {
-	      log_file = stderr;
+	      log_file = stdout;
 	  }
 
           _setup.use_lazy_close = 1;
@@ -1580,6 +1580,7 @@ int Interp::unwind_call(int status, const char *file, int line, const char *func
 	// on return, like Python handlers
 	// needed to make sure this works in rs274 -n 0 (continue on error) mode
 	if (sub->filename && sub->filename[0]) {
+            logDebug("unwind_call: filename is %s", sub->filename);
 	    if(0 != strcmp(_setup.filename, sub->filename)) {
 		fclose(_setup.file_pointer);
 		_setup.file_pointer = fopen(sub->filename, "r");

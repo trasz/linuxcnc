@@ -139,6 +139,25 @@ static const char *io_error = "toolchanger error %d";
 
 extern void setup_signal_handlers(); // backtrace, gdb-in-new-window supportx
 
+
+void dump_state(const char *header) {
+    printf("%s\n", header);
+    printf("    activeGCodes:\n");
+    for (int i = 0; i < ACTIVE_G_CODES; i ++) {
+        printf("        %d: %d\n", i, emcStatus->task.activeGCodes[i]);
+    }
+    printf("    activeMCodes:\n");
+    for (int i = 0; i < ACTIVE_M_CODES; i ++) {
+        printf("        %d: %d\n", i, emcStatus->task.activeMCodes[i]);
+    }
+    printf("    activeSettings:\n");
+    for (int i = 0; i < ACTIVE_SETTINGS; i ++) {
+        printf("        %d: %f\n", i, emcStatus->task.activeSettings[i]);
+    }
+    printf("    g5x_index: %d\n", emcStatus->task.g5x_index);
+    fflush(NULL);
+}
+
 static int all_homed(void) {
     for(int i=0; i<9; i++) {
         unsigned int mask = 1<<i;
@@ -847,7 +866,6 @@ static int emcTaskPlan(void)
 	    case EMC_TASK_PLAN_OPEN_TYPE:
 	    case EMC_TASK_PLAN_SET_OPTIONAL_STOP_TYPE:
 	    case EMC_TASK_PLAN_SET_BLOCK_DELETE_TYPE:
-	    case EMC_TASK_ABORT_TYPE:
 	    case EMC_TRAJ_CLEAR_PROBE_TRIPPED_FLAG_TYPE:
 	    case EMC_TRAJ_PROBE_TYPE:
 	    case EMC_AUX_INPUT_WAIT_TYPE:
@@ -857,6 +875,11 @@ static int emcTaskPlan(void)
 	    case EMC_TRAJ_RIGID_TAP_TYPE:
 	    case EMC_TRAJ_SET_TELEOP_ENABLE_TYPE:
 	    case EMC_SET_DEBUG_TYPE:
+		retval = emcTaskIssueCommand(emcCommand);
+		break;
+
+	    case EMC_TASK_ABORT_TYPE:
+                dump_state("2");
 		retval = emcTaskIssueCommand(emcCommand);
 		break;
 
@@ -958,7 +981,6 @@ static int emcTaskPlan(void)
 	    case EMC_LUBE_OFF_TYPE:
 	    case EMC_TASK_SET_MODE_TYPE:
 	    case EMC_TASK_SET_STATE_TYPE:
-	    case EMC_TASK_ABORT_TYPE:
 	    case EMC_TASK_PLAN_PAUSE_TYPE:
 	    case EMC_TASK_PLAN_RESUME_TYPE:
 	    case EMC_TASK_PLAN_INIT_TYPE:
@@ -978,6 +1000,12 @@ static int emcTaskPlan(void)
 	    case EMC_SET_DEBUG_TYPE:
 		retval = emcTaskIssueCommand(emcCommand);
 		break;
+
+	    case EMC_TASK_ABORT_TYPE:
+                dump_state("3");
+		retval = emcTaskIssueCommand(emcCommand);
+		break;
+
 
 		// queued commands
 
@@ -1062,7 +1090,6 @@ static int emcTaskPlan(void)
 		case EMC_LUBE_OFF_TYPE:
 		case EMC_TASK_SET_MODE_TYPE:
 		case EMC_TASK_SET_STATE_TYPE:
-		case EMC_TASK_ABORT_TYPE:
 		case EMC_TASK_PLAN_INIT_TYPE:
 		case EMC_TASK_PLAN_OPEN_TYPE:
 		case EMC_TASK_PLAN_RUN_TYPE:
@@ -1079,6 +1106,12 @@ static int emcTaskPlan(void)
 		case EMC_SET_DEBUG_TYPE:
 		    retval = emcTaskIssueCommand(emcCommand);
 		    break;
+
+		case EMC_TASK_ABORT_TYPE:
+                    dump_state("4");
+		    retval = emcTaskIssueCommand(emcCommand);
+		    break;
+
 
 		case EMC_TASK_PLAN_STEP_TYPE:
 		    // handles case where first action is to step the program
@@ -1152,7 +1185,6 @@ static int emcTaskPlan(void)
 		case EMC_TASK_PLAN_OPTIONAL_STOP_TYPE:
 		case EMC_TASK_SET_MODE_TYPE:
 		case EMC_TASK_SET_STATE_TYPE:
-		case EMC_TASK_ABORT_TYPE:
 		case EMC_TRAJ_CLEAR_PROBE_TRIPPED_FLAG_TYPE:
 		case EMC_TRAJ_PROBE_TYPE:
 		case EMC_AUX_INPUT_WAIT_TYPE:
@@ -1164,6 +1196,12 @@ static int emcTaskPlan(void)
                 case EMC_COOLANT_FLOOD_OFF_TYPE:
                 case EMC_LUBE_ON_TYPE:
                 case EMC_LUBE_OFF_TYPE:
+		    retval = emcTaskIssueCommand(emcCommand);
+		    return retval;
+		    break;
+
+		case EMC_TASK_ABORT_TYPE:
+                    dump_state("1");
 		    retval = emcTaskIssueCommand(emcCommand);
 		    return retval;
 		    break;
@@ -1230,7 +1268,6 @@ static int emcTaskPlan(void)
 		case EMC_LUBE_OFF_TYPE:
 		case EMC_TASK_SET_MODE_TYPE:
 		case EMC_TASK_SET_STATE_TYPE:
-		case EMC_TASK_ABORT_TYPE:
 		case EMC_TASK_PLAN_EXECUTE_TYPE:
 		case EMC_TASK_PLAN_PAUSE_TYPE:
 		case EMC_TASK_PLAN_RESUME_TYPE:
@@ -1244,6 +1281,12 @@ static int emcTaskPlan(void)
 		case EMC_SET_DEBUG_TYPE:
 		    retval = emcTaskIssueCommand(emcCommand);
 		    break;
+
+		case EMC_TASK_ABORT_TYPE:
+                    dump_state("5");
+		    retval = emcTaskIssueCommand(emcCommand);
+		    break;
+
 
 		case EMC_TASK_PLAN_STEP_TYPE:
 		    stepping = 1;
@@ -1307,7 +1350,6 @@ static int emcTaskPlan(void)
 		case EMC_TASK_PLAN_OPTIONAL_STOP_TYPE:
 		case EMC_TASK_SET_MODE_TYPE:
 		case EMC_TASK_SET_STATE_TYPE:
-		case EMC_TASK_ABORT_TYPE:
 		case EMC_TRAJ_CLEAR_PROBE_TRIPPED_FLAG_TYPE:
 		case EMC_TRAJ_PROBE_TYPE:
 		case EMC_AUX_INPUT_WAIT_TYPE:
@@ -1321,6 +1363,12 @@ static int emcTaskPlan(void)
                 case EMC_LUBE_OFF_TYPE:
 		    retval = emcTaskIssueCommand(emcCommand);
 		    break;
+
+		case EMC_TASK_ABORT_TYPE:
+                    dump_state("6");
+		    retval = emcTaskIssueCommand(emcCommand);
+		    break;
+
 
 		case EMC_TASK_PLAN_STEP_TYPE:
 		    stepping = 1;	// set stepping mode in case it's not
@@ -1398,7 +1446,6 @@ static int emcTaskPlan(void)
 	    case EMC_TASK_PLAN_SET_BLOCK_DELETE_TYPE:
 	    case EMC_TASK_PLAN_RESUME_TYPE:
 	    case EMC_TASK_PLAN_OPTIONAL_STOP_TYPE:
-	    case EMC_TASK_ABORT_TYPE:
 	    case EMC_TRAJ_CLEAR_PROBE_TRIPPED_FLAG_TYPE:
 	    case EMC_TRAJ_PROBE_TYPE:
 	    case EMC_AUX_INPUT_WAIT_TYPE:
@@ -1409,6 +1456,12 @@ static int emcTaskPlan(void)
 	    case EMC_SET_DEBUG_TYPE:
 		retval = emcTaskIssueCommand(emcCommand);
 		break;
+
+	    case EMC_TASK_ABORT_TYPE:
+                dump_state("7");
+		retval = emcTaskIssueCommand(emcCommand);
+		break;
+
 
             case EMC_TASK_PLAN_EXECUTE_TYPE:
                 // If there are no queued MDI commands and no commands
@@ -2074,12 +2127,14 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 
     case EMC_TASK_ABORT_TYPE:
 	// abort everything
+        dump_state("EMC_TASK_ABORT start");
 	emcTaskAbort();
         emcIoAbort(EMC_ABORT_TASK_ABORT);
         emcSpindleAbort();
 	mdi_execute_abort();
 	emcAbortCleanup(EMC_ABORT_TASK_ABORT);
 	retval = 0;
+        dump_state("EMC_TASK_ABORT done");
 	break;
 
 	// mode and state commands
@@ -2244,6 +2299,7 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 	break;
 
     case EMC_TASK_PLAN_RUN_TYPE:
+        dump_state("run start");
         if (!all_homed() && !no_force_homing) { //!no_force_homing = force homing before Auto
             emcOperatorError(0, _("Can't run a program when not homed"));
             retval = -1;
