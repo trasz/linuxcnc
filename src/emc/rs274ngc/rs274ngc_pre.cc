@@ -2407,6 +2407,20 @@ int Interp::on_abort(int reason, const char *message)
     _setup.probe_flag = false;
     _setup.input_flag = false;
 
+    logDebug("interp: %s simulating M30\n", __func__);
+
+    SET_G5X_OFFSET(_setup.origin_index,
+                   _setup.origin_offset_x,
+                   _setup.origin_offset_y,
+                   _setup.origin_offset_z,
+                   _setup.AA_origin_offset,
+                   _setup.BB_origin_offset,
+                   _setup.CC_origin_offset,
+                   _setup.u_origin_offset,
+                   _setup.v_origin_offset,
+                   _setup.w_origin_offset);
+    SET_XY_ROTATION(_setup.rotation_xy);
+
     if (_setup.on_abort_command == NULL)
 	return -1;
 
