@@ -698,6 +698,7 @@ int main(int argc, char *argv[])
     int t, tool_status;
     NMLTYPE type;
 
+    rtapi_set_msg_level(RTAPI_MSG_ALL);
     for (t = 1; t < argc; t++) {
 	if (!strcmp(argv[t], "-ini")) {
 	    if (t == argc - 1) {
