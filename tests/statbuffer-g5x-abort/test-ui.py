@@ -42,10 +42,12 @@ c.auto(linuxcnc.AUTO_RUN, 0)
 # FIXME: this is lame
 time.sleep(1)
 
+os.system("halcmd show pin io")
 c.abort()
 
 c.wait_complete()
 s.poll()
+os.system("halcmd show pin io")
 
 # the program ran in g55, but now we should be back to g54
 if not 540 in s.gcodes:

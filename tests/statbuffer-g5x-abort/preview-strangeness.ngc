@@ -26,6 +26,9 @@
 G55
 G0 X0 Y0 Z0
 
+; 1.5 turn on flood coolant
+M8
+
 ; 2.  Stop program during execution of the following line
 G1 X5 Y-5 F1 (Slow move; STOP PROGRAM NOW)
 
