@@ -3,7 +3,7 @@
 // This is a userspace HAL driver for the ShuttleXpress device by Contour
 // Design.
 //
-// Copyright 2011 Sebastian Kuzminsky <seb@highlab.com>
+// Copyright 2011, 2016 Sebastian Kuzminsky <seb@highlab.com>
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -48,19 +48,41 @@
 
 #define Max(a, b)  ((a) > (b) ? (a) : (b))
 
+#define MAX_BUTTONS 13
+
+
+typedef struct {
+    const char *name;
+    uint16_t vendor_id;
+    uint16_t product_id;
+    int num_buttons;
+    uint16_t button_mask[MAX_BUTTONS];
+} contour_dev_t;
 
 
 
-// USB Vendor and Product IDs
-#define VENDOR_ID  0x0b33  // Contour Design
-#define PRODUCT_ID 0x0020  // ShuttleXpress
-
+contour_dev_t contour_dev[] = {
+    {
+        .name = "ShuttleXpress",
+        .vendor_id = 0x0b33,
+        .product_id = 0x0020,
+        .num_buttons = 5,
+        .button_mask = { 0x0010, 0x0020, 0x0040, 0x0080, 0x0100 }
+    },
+    {
+        .name = "ShuttlePRO",
+        .vendor_id = 0x05f3,
+        .product_id = 0x0240,
+        .num_buttons = 13,
+        .button_mask = { 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080, 0x0100, 0x0200, 0x0400, 0x0800, 0x1000 }
+    }
+};
 
 // each packet from the ShuttleXpress is this many bytes
 #define PACKET_LEN 5
 
 
-// the module name, and prefix for all HAL pins 
+// the module name, and prefix for all HAL pins
 char *modname = "shuttlexpress";
 
 
@@ -71,16 +93,8 @@ int hal_comp_id;
 
 // each ShuttleXpress presents this interface to HAL
 struct shuttlexpress_hal {
-    hal_bit_t *button_0;
-    hal_bit_t *button_0_not;
-    hal_bit_t *button_1;
-    hal_bit_t *button_1_not;
-    hal_bit_t *button_2;
-    hal_bit_t *button_2_not;
-    hal_bit_t *button_3;
-    hal_bit_t *button_3_not;
-    hal_bit_t *button_4;
-    hal_bit_t *button_4_not;
+    hal_bit_t *button[13];
+    hal_bit_t *button_not[13];
     hal_s32_t *counts;        // accumulated counts from the jog wheel
     hal_float_t *spring_wheel_f;  // current position of the springy outer wheel, as a float from -1 to +1 inclusive
     hal_s32_t *spring_wheel_s32;  // current position of the springy outer wheel, as a s32 from -7 to +7 inclusive
@@ -93,6 +107,7 @@ struct shuttlexpress {
     struct shuttlexpress_hal *hal;
     int read_first_event;
     int prev_count;
+    contour_dev_t *contour_type;
 };
 
 
@@ -118,7 +133,8 @@ static void call_hal_exit(void) {
 
 int read_update(struct shuttlexpress *s) {
     int r;
-    int8_t packet[PACKET_LEN];
+    uint8_t packet[PACKET_LEN];
+    uint16_t button;
 
     r = read(s->fd, packet, PACKET_LEN);
     if (r < 0) {
@@ -129,16 +145,15 @@ int read_update(struct shuttlexpress *s) {
         return -1;
     }
 
-    *s->hal->button_0 = packet[3] & 0x10;
-    *s->hal->button_0_not = !*s->hal->button_0;
-    *s->hal->button_1 = packet[3] & 0x20;
-    *s->hal->button_1_not = !*s->hal->button_1;
-    *s->hal->button_2 = packet[3] & 0x40;
-    *s->hal->button_2_not = !*s->hal->button_2;
-    *s->hal->button_3 = packet[3] & 0x80;
-    *s->hal->button_3_not = !*s->hal->button_3;
-    *s->hal->button_4 = packet[4] & 0x01;
-    *s->hal->button_4_not = !*s->hal->button_4;
+    button = (packet[4] << 8) | packet[3];
+    for (int i = 0; i < s->contour_type->num_buttons; i ++) {
+        if (button & s->contour_type->button_mask[i]) {
+            *s->hal->button[i] = 1;
+        } else {
+            *s->hal->button[i] = 0;
+        }
+        *s->hal->button_not[i] = !*s->hal->button[i];
+    }
 
     {
         int curr_count = packet[1];
@@ -195,13 +210,21 @@ struct shuttlexpress *check_for_shuttlexpress(char *dev_filename) {
         goto fail1;
     }
 
-    if (devinfo.vendor != VENDOR_ID) {
-        fprintf(stderr, "%s: dev %s has unexpected Vendor ID 0x%04x (expected Contour Design, 0x%04x)\n", modname, s->device_file, devinfo.vendor, VENDOR_ID);
-        goto fail1;
+    for (int i = 0; i < sizeof(contour_dev)/sizeof(contour_dev_t); i ++) {
+        if (devinfo.vendor != contour_dev[i].vendor_id) {
+            continue;
+        }
+
+        if (devinfo.product != contour_dev[i].product_id) {
+            continue;
+        }
+
+        s->contour_type = &contour_dev[i];
+        break;
     }
 
-    if (devinfo.product != PRODUCT_ID) {
-        fprintf(stderr, "%s: dev %s has unexpected Product ID 0x%04x (expected ShuttleXpress, 0x%04x)\n", modname, s->device_file, devinfo.product, PRODUCT_ID);
+    if (s->contour_type == NULL) {
+        fprintf(stderr, "%s: dev %s is not a known Shuttle device\n", modname, s->device_file);
         goto fail1;
     }
 
@@ -219,35 +242,15 @@ struct shuttlexpress *check_for_shuttlexpress(char *dev_filename) {
         goto fail1;
     }
 
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_0), hal_comp_id, "%s.%d.button-0", modname, num_devices);
-    if (r != 0) goto fail1;
+    for (int i = 0; i < s->contour_type->num_buttons; i ++) {
+        r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button[i]), hal_comp_id, "%s.%d.button-%d", modname, num_devices, i);
+        if (r != 0) goto fail1;
+        *s->hal->button[i] = 0;
 
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_0_not), hal_comp_id, "%s.%d.button-0-not", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_1), hal_comp_id, "%s.%d.button-1", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_1_not), hal_comp_id, "%s.%d.button-1-not", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_2), hal_comp_id, "%s.%d.button-2", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_2_not), hal_comp_id, "%s.%d.button-2-not", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_3), hal_comp_id, "%s.%d.button-3", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_3_not), hal_comp_id, "%s.%d.button-3-not", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_4), hal_comp_id, "%s.%d.button-4", modname, num_devices);
-    if (r != 0) goto fail1;
-
-    r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_4_not), hal_comp_id, "%s.%d.button-4-not", modname, num_devices);
-    if (r != 0) goto fail1;
+        r = hal_pin_bit_newf(HAL_OUT, &(s->hal->button_not[i]), hal_comp_id, "%s.%d.button-%d-not", modname, num_devices, i);
+        if (r != 0) goto fail1;
+        *s->hal->button_not[i] = 1;
+    }
 
     r = hal_pin_s32_newf(HAL_OUT, &(s->hal->counts), hal_comp_id, "%s.%d.counts", modname, num_devices);
     if (r != 0) goto fail1;
@@ -258,16 +261,6 @@ struct shuttlexpress *check_for_shuttlexpress(char *dev_filename) {
     r = hal_pin_s32_newf(HAL_OUT, &(s->hal->spring_wheel_s32), hal_comp_id, "%s.%d.spring-wheel-s32", modname, num_devices);
     if (r != 0) goto fail1;
 
-    *s->hal->button_0 = 0;
-    *s->hal->button_0_not = 1;
-    *s->hal->button_1 = 0;
-    *s->hal->button_1_not = 1;
-    *s->hal->button_2 = 0;
-    *s->hal->button_2_not = 1;
-    *s->hal->button_3 = 0;
-    *s->hal->button_3_not = 1;
-    *s->hal->button_4 = 0;
-    *s->hal->button_4_not = 1;
     *s->hal->counts = 0;
     *s->hal->spring_wheel_f = 0.0;
     *s->hal->spring_wheel_s32 = 0;

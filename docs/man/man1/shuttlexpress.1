@@ -20,11 +20,12 @@ If it is started without command-line arguments, it will probe all
 found.  If it is started with command-line arguments, only will only
 probe the devices specified.
 .SH UDEV
-The shuttlexpress module needs read permission on the /dev/hidraw*
-device files.  This can be accomplished by adding a file
-\fB/etc/udev/rules.d/99-shuttlexpress.rules\fR, with the following contents:
+The shuttlexpress module needs read permission on the Shuttle devices'
+/dev/hidraw* device files.  This can be accomplished by adding a file
+\fB/etc/udev/rules.d/99-shuttle.rules\fR, with the following contents:
 
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0b33", ATTRS{idProduct}=="0020", MODE="0444"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="05f3", ATTRS{idProduct}=="0240", MODE="0444"
 
 The LinuxCNC Debian package installs this udev file automatically, but
 if you are building LinuxCNC from source and are not using the Debian
