@@ -171,8 +171,8 @@ int read_update(struct shuttlexpress *s) {
         }
     }
 
-    *s->hal->spring_wheel_s32 = packet[0];
-    *s->hal->spring_wheel_f = packet[0] / 7.0;
+    *s->hal->spring_wheel_s32 = (int8_t)packet[0];
+    *s->hal->spring_wheel_f = (int8_t)packet[0] / 7.0;
 
     return 0;
 }
