@@ -1105,6 +1105,9 @@ fi
 #                                                                            #
 ##############################################################################
 
+# prctl.h is Linux-specific "process control"
+AC_CHECK_HEADERS(sys/prctl.h)
+
 # This section gets inserted in to config.h.in when autoheader is run.
 # Global and common defines should be here rather than duplicated in
 # multiple places. Keep screwball constructs out of this, and it can
