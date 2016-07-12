@@ -630,12 +630,14 @@ static int harden_rt()
 
     WITH_ROOT;
 #if defined(__x86_64__) || defined(__i386__)
+#if HAVE_SYS_IO_H
     if (iopl(3) < 0) {
         rtapi_print_msg(RTAPI_MSG_ERR,
                         "cannot gain I/O privileges - "
                         "forgot 'sudo make setuid'?\n");
         return -EPERM;
     }
+#endif
 #endif
 
     struct sigaction sig_act = {};
