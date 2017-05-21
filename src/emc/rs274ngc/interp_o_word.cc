@@ -382,7 +382,8 @@ int Interp::execute_return(setup_pointer settings, context_pointer current_frame
 		switch (status = handler_returned(settings, current_frame, current_frame->subName, false)) {
 		case INTERP_EXECUTE_FINISH:
 		    settings->call_state = CS_REEXEC_EPILOG;
-		    break;
+		    eblock->call_type = CT_REMAP;
+		    CHP(status);
 		default:
 		    settings->call_state = CS_NORMAL;
 		    settings->sequence_number = previous_frame->sequence_number;
@@ -476,7 +477,6 @@ int Interp::control_back_to( block_pointer block, // pointer to block
 {
     static char name[] = "control_back_to";
     char newFileName[PATH_MAX+1];
-    char tmpFileName[PATH_MAX+1];
     FILE *newFP;
     offset_map_iterator it;
     offset_pointer op;
@@ -540,7 +540,6 @@ int Interp::control_back_to( block_pointer block, // pointer to block
 	logOword("fopen: |%s| failed CWD:|%s|", newFileName,
 		 dirname);
 	free(dirname);
-	ERS(NCE_UNABLE_TO_OPEN_FILE,tmpFileName);
     }
 
     settings->skipping_o = block->o_name; // start skipping

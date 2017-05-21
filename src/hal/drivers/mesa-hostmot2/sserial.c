@@ -320,6 +320,8 @@ int hm2_sserial_setup_channel(hostmot2_t *hm2, hm2_sserial_instance_t *inst, int
                 hm2->llio->name, index);
         return -EINVAL;
     }
+    *inst->run = true;
+
     r = hal_pin_u32_newf(HAL_OUT, &(inst->state),
                          hm2->llio->comp_id, 
                          "%s.sserial.port-%1d.port_state",
@@ -809,10 +811,16 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
             return -EINVAL;
         }
         
-        if (strcmp(chan->confs[i].UnitString, "gray") == 0){
+        if (chan->confs[i].Flags & 0x01){
             chan->pins[i].graycode = 1;
         } else {
             chan->pins[i].graycode = 0;
+        }
+
+        if (chan->confs[i].Flags & 0x02){
+            chan->pins[i].nowrap = 1;
+        } else {
+            chan->pins[i].nowrap = 0;
         }
 
 
@@ -1067,6 +1075,19 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
             case LBP_ENCODER_L:
                 //No pins for encoder L
                 break;
+            case LBP_FLOAT:
+                rtapi_snprintf(name, sizeof(name), "%s.%s",
+                               chan->name,
+                               chan->confs[i].NameString);
+                r = hal_pin_float_new(name,
+                                      data_dir,
+                                      &(chan->pins[i].float_pin),
+                                      hm2->llio->comp_id);
+                if (r < 0) {
+                    HM2_ERR("error adding pin '%s', aborting\n", name);
+                    return r;
+                }
+                break;
             default:
                 HM2_ERR("Unhandled sserial data type (%i) Name %s Units %s\n",
                         chan->confs[i].DataType, 
@@ -1183,6 +1204,8 @@ void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period){
         hm2_sserial_instance_t *inst = &hm2->sserial.instance[i];
         
         switch (*inst->state){
+            case 0x04: // just transitioning to idle
+                *inst->state = 0x00;
             case 0: // Idle
                 if (! *inst->run){ return; }
                 *inst->state = 0x11;
@@ -1196,6 +1219,8 @@ void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period){
                 *inst->fault_count = 0;
                 doit_err_count = 0;
                 break;
+            case 0x05: // just transitioning to running
+                *inst->state = 0x01;
             case 0x01: // normal running
                 if (!*inst->run){
                      *inst->state = 0x02;
@@ -1307,9 +1332,22 @@ void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period){
                                      // Would we ever write to a counter? 
                                     // Assume not for the time being
                                     break;
+                                case LBP_FLOAT:
+                                    if (conf->DataLength == sizeof(float) * 8 ){
+                                        float temp = *pin->float_pin;
+                                        memcpy(&buff, &temp, sizeof(float));
+                                    } else if (conf->DataLength == sizeof(double) * 8){
+                                        double temp = *pin->float_pin;
+                                        memcpy(&buff, &temp, sizeof(double));
+                                    } else {
+                                        HM2_ERR_NO_LL("sserial write: LBP_FLOAT of bit-length %i not handled\n", conf->DataLength);
+                                        conf->DataType = 0; // only warn once, then ignore
+                                    }
+                                    break;
                                 default:
                                     HM2_ERR("Unsupported output datatype %i (name ""%s"")\n",
                                             conf->DataType, conf->NameString);
+				    conf->DataType = 0; // Warn once, then ignore
                                     
                             }
                             bitcount = setbits(chan, &buff, bitcount, conf->DataLength);
@@ -1337,7 +1375,7 @@ void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period){
                     *inst->fault_count += inst->fault_inc;
                     // carry on, nothing much we can do about it
                 }
-                *inst->state &= 0x0F;
+                *inst->state = (*inst->state & 0x0F) | 0x4;
                 *inst->command_reg_write = 0x80000000; // mask pointless writes
                 break;
             case 0x20:// Do-nothing state for serious errors. require run pin to cycle
@@ -1447,10 +1485,12 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
                 buff64 = (buff ^ buff64) - buff64;
                 previous = pin->accum;
 
-                if ((buff64 - pin->oldval) > (1 << (bitlength - 2))){
-                    pin->accum -= (1 << bitlength);
-                } else if ((pin->oldval - buff64) > (1 << (bitlength - 2))){
-                    pin->accum += (1 << bitlength);
+                if (pin->nowrap == 0){
+					if ((buff64 - pin->oldval) > (1 << (bitlength - 2))){
+						pin->accum -= (1 << bitlength);
+					} else if ((pin->oldval - buff64) > (1 << (bitlength - 2))){
+						pin->accum += (1 << bitlength);
+					}
                 }
                 pin->accum += (buff64 - pin->oldval);
 
@@ -1489,10 +1529,25 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
                 *pin->s32_pin2 = pin->accum;
                 *pin->float_pin = (double)(pin->accum - pin->offset) / pin->fullscale ;
                 break;
+            case LBP_FLOAT:
+                if (conf->DataLength == sizeof(float) * 8){
+                    float temp;
+                    memcpy(&temp, &buff, sizeof(float));
+                    *pin->float_pin = temp;
+                } else if (conf->DataLength == sizeof(double) * 8){
+                    double temp;
+                    memcpy(&temp, &buff, sizeof(double));
+                    *pin->float_pin = temp;
+                } else {
+                    HM2_ERR_NO_LL("sserial read: LBP_FLOAT of bit-length %i not handled\n", conf->DataLength);
+                    conf->DataType = 0; // Only warn once, then ignore
+                }
+                break;
             }
             default:
                 HM2_ERR_NO_LL("Unsupported input datatype %i (name ""%s"")\n",
                         conf->DataType, conf->NameString);
+		conf->DataType = 0; // Only warn once, then ignore
             }
             bitcount += conf->DataLength;
         }
@@ -1915,17 +1970,8 @@ int check_set_baudrate(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
 
 
 void hm2_sserial_force_write(hostmot2_t *hm2){
-    int i;
-    rtapi_u32 buff;
-    for(i = 0; i < hm2->sserial.num_instances; i++){
-        buff = 0x800;
-        hm2->llio->write(hm2->llio, hm2->sserial.instance[i].command_reg_addr, &buff, sizeof(rtapi_u32));
-        *hm2->sserial.instance[i].run = 0;
-        *hm2->sserial.instance[i].state = 0;
-        hm2_sserial_waitfor(hm2, hm2->sserial.instance[i].command_reg_addr, 0xFFFFFFFF, 26);
-        *hm2->sserial.instance[i].run = 1;
-        *hm2->sserial.instance[i].command_reg_write = 0x80000000;
-    }
+    // there's nothing to do here, because hm2_sserial_prepare_tram_write takes
+    // charge of recovering after communication error.
 }
 
 void hm2_sserial_cleanup(hostmot2_t *hm2){

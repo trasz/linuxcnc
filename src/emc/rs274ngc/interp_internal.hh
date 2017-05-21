@@ -230,6 +230,7 @@ enum SPINDLE_MODE { CONSTANT_RPM, CONSTANT_SURFACE };
 #define G_61_1 611
 #define G_64   640
 #define G_73   730
+#define G_74   740
 #define G_76   760
 #define G_80   800
 #define G_81   810
@@ -751,9 +752,9 @@ struct setup
   int b_axis_wrapped;
   int c_axis_wrapped;
 
-  int a_indexer;
-  int b_indexer;
-  int c_indexer;
+  int a_indexer_jnum;
+  int b_indexer_jnum;
+  int c_indexer_jnum;
 
   bool lathe_diameter_mode;       //Lathe diameter mode (g07/G08)
   bool mdi_interrupt;
@@ -789,7 +790,7 @@ extern class PythonPlugin *python_plugin;
 #define PYUSABLE (((python_plugin) != NULL) && (python_plugin->usable()))
 
 inline bool is_a_cycle(int motion) {
-    return ((motion > G_80) && (motion < G_90)) || (motion == G_73);
+    return ((motion > G_80) && (motion < G_90)) || (motion == G_73) || (motion == G_74);
 }
 /*
 

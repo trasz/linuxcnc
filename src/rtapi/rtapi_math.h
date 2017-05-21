@@ -43,6 +43,7 @@ extern double exp(double);
 extern double pow(double, double);
 extern double fmin(double, double);
 extern double fmax(double, double);
+extern double fmod(double, double);
 
 extern double round(double);
 extern double ceil(double);
@@ -54,6 +55,7 @@ extern double floor(double);
 #define nan(x) __builtin_nan((x))
 
 #define isinf(x) __builtin_isinf((x))
+#define isfinite(x) __builtin_isfinite((x))
 
 extern __inline double atan (double __y) {
     return atan2(__y, 1.);

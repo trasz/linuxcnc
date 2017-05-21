@@ -452,9 +452,6 @@ int Interp::_execute(const char *command)
 		      (_setup.mdi_interrupt)) { 
 
 		      status = convert_control_functions(eblock, &_setup);
-		      // a prolog might yield INTERP_EXECUTE_FINISH too
-		      if (status == INTERP_EXECUTE_FINISH) 
-			  _setup.mdi_interrupt = true;
 		      CHP(status);
 		      if (_setup.mdi_interrupt) {
 			  _setup.mdi_interrupt = false;
@@ -615,7 +612,8 @@ int Interp::remap_finished(int phase)
 		// if ((status == INTERP_OK) || (status == INTERP_ENDFILE) || (status == INTERP_EXIT) || (status == INTERP_EXECUTE_FINISH)) {
 		// leftover items finished. Drop a remapping level.
 
-		CHP(leave_remap());
+		if (status != INTERP_EXIT) // Don't drop remap lev. at prog exit
+		    CHP(leave_remap());
 		logRemap("executing block leftover items complete, status=%s  remap_level=%d call_level=%d tc=%d probe=%d input=%d mdi_interrupt=%d  line=%d backtoline=%d",
 			 interp_status(status),_setup.remap_level,_setup.call_level,_setup.toolchange_flag,
 			_setup.probe_flag,_setup.input_flag,_setup.mdi_interrupt,_setup.sequence_number,
@@ -656,7 +654,15 @@ int Interp::find_remappings(block_pointer block, setup_pointer settings)
 	    block->remappings.insert(STEP_PREPARE);
     }
     // User defined M-Codes in group 5
-    if (IS_USER_MCODE(block,settings,5))
+    if (IS_USER_MCODE(block,settings,5) &&
+	!(((block->m_modes[5] == 62) && remap_in_progress("M62")) ||
+	  ((block->m_modes[5] == 63) && remap_in_progress("M63")) ||
+	  ((block->m_modes[5] == 64) && remap_in_progress("M64")) ||
+	  ((block->m_modes[5] == 65) && remap_in_progress("M65")) ||
+	  ((block->m_modes[5] == 66) && remap_in_progress("M66")) ||
+	  ((block->m_modes[5] == 67) && remap_in_progress("M67")) ||
+	  ((block->m_modes[5] == 68) && remap_in_progress("M68"))))
+	// non-recursive behavior
 	block->remappings.insert(STEP_M_5);
 
     // User defined M-Codes in group 6 (including M6, M61)
@@ -824,9 +830,9 @@ int Interp::init()
   _setup.b_axis_wrapped = 0;
   _setup.c_axis_wrapped = 0;
   _setup.random_toolchanger = 0;
-  _setup.a_indexer = 0;
-  _setup.b_indexer = 0;
-  _setup.c_indexer = 0;
+  _setup.a_indexer_jnum = -1; // -1 means not used
+  _setup.b_indexer_jnum = -1; // -1 means not used
+  _setup.c_indexer_jnum = -1; // -1 means not used
   _setup.return_value = 0;
   _setup.value_returned = 0;
   _setup.remap_level = 0; // remapped blocks stack index
@@ -849,15 +855,21 @@ int Interp::init()
           inifile.Find(&_setup.tool_change_at_g30, "TOOL_CHANGE_AT_G30", "EMCIO");
           inifile.Find(&_setup.tool_change_quill_up, "TOOL_CHANGE_QUILL_UP", "EMCIO");
           inifile.Find(&_setup.tool_change_with_spindle_on, "TOOL_CHANGE_WITH_SPINDLE_ON", "EMCIO");
-          inifile.Find(&_setup.a_axis_wrapped, "WRAPPED_ROTARY", "AXIS_3");
-          inifile.Find(&_setup.b_axis_wrapped, "WRAPPED_ROTARY", "AXIS_4");
-          inifile.Find(&_setup.c_axis_wrapped, "WRAPPED_ROTARY", "AXIS_5");
+          inifile.Find(&_setup.a_axis_wrapped, "WRAPPED_ROTARY", "AXIS_A");
+          inifile.Find(&_setup.b_axis_wrapped, "WRAPPED_ROTARY", "AXIS_B");
+          inifile.Find(&_setup.c_axis_wrapped, "WRAPPED_ROTARY", "AXIS_C");
           inifile.Find(&_setup.random_toolchanger, "RANDOM_TOOLCHANGER", "EMCIO");
           inifile.Find(&_setup.feature_set, "FEATURES", "RS274NGC");
 
-          inifile.Find(&_setup.a_indexer, "LOCKING_INDEXER", "AXIS_3");
-          inifile.Find(&_setup.b_indexer, "LOCKING_INDEXER", "AXIS_4");
-          inifile.Find(&_setup.c_indexer, "LOCKING_INDEXER", "AXIS_5");
+          if (NULL != (inistring =inifile.Find("LOCKING_INDEXER_JOINT", "AXIS_A"))) {
+              _setup.a_indexer_jnum = atol(inistring);
+          }
+          if (NULL != (inistring =inifile.Find("LOCKING_INDEXER_JOINT", "AXIS_B"))) {
+              _setup.b_indexer_jnum = atol(inistring);
+          }
+          if (NULL != (inistring =inifile.Find("LOCKING_INDEXER_JOINT", "AXIS_C"))) {
+              _setup.c_indexer_jnum = atol(inistring);
+          }
           inifile.Find(&_setup.orient_offset, "ORIENT_OFFSET", "RS274NGC");
 
           inifile.Find(&_setup.debugmask, "DEBUG", "EMC");
@@ -1861,31 +1873,19 @@ int Interp::save_parameters(const char *filename,      //!< name of file to writ
   int index;                    // index into _required_parameters
   int k;
 
-  if(access(filename, F_OK)==0) 
-  {
-    // rename as .bak
-    int r;
-    r = snprintf(line, sizeof(line), "%s%s", filename, RS274NGC_PARAMETER_FILE_BACKUP_SUFFIX);
-    CHKS((r >= (int)sizeof(line)), NCE_CANNOT_CREATE_BACKUP_FILE);
-    CHKS((rename(filename, line) != 0), NCE_CANNOT_CREATE_BACKUP_FILE);
-
-    // open backup for reading
-    infile = fopen(line, "r");
-    CHKS((infile == NULL), NCE_CANNOT_OPEN_BACKUP_FILE);
-  } else {
-    // it's OK if the parameter file doesn't exist yet
-    // it will now be created with a default list of parameters
-    infile = fopen("/dev/null", "r");
-  }
-  // open original for writing
-  outfile = fopen(filename, "w");
+  std::string tempfile = std::string(filename) + ".new";
+  outfile = fopen(tempfile.c_str(), "w");
   CHKS((outfile == NULL), NCE_CANNOT_OPEN_VARIABLE_FILE);
+
+  infile = fopen(filename, "r");
+  if(!infile)
+    infile = fopen("/dev/null", "r");
 
   k = 0;
   index = 0;
   required = _required_parameters[index++];
   while (feof(infile) == 0) {
-    if (fgets(line, 256, infile) == NULL) {
+    if (fgets(line, sizeof(line), infile) == NULL) {
       break;
     }
     // try for a variable-value match
@@ -1922,7 +1922,17 @@ int Interp::save_parameters(const char *filename,      //!< name of file to writ
       required = _required_parameters[index++];
     }
   }
+
+  fflush(outfile);
+  fdatasync(fileno(outfile));
   fclose(outfile);
+  std::string bakfile = std::string(filename)
+                            + RS274NGC_PARAMETER_FILE_BACKUP_SUFFIX;
+  unlink(bakfile.c_str());
+  if(link(filename, bakfile.c_str()) < 0)
+    perror("link (updating variable file)");
+  if(rename(tempfile.c_str(), filename) < 0)
+    perror("rename (updating variable file)");
   return INTERP_OK;
 }
 
@@ -1984,7 +1994,9 @@ int Interp::synch()
 
   load_tool_table();   /*  must set  _setup.tool_max first */
 
-  // read_inputs(&_setup); // input/probe/toolchange 
+  // read_inputs(&_setup); // input/probe/toolchange
+
+  write_settings(&_setup);
 
   return INTERP_OK;
 }
@@ -2419,17 +2431,9 @@ int Interp::enter_remap(void)
     CONTROLLING_BLOCK(_setup).executing_remap = NULL;
 
     // remember the line where remap was discovered
-    if (_setup.remap_level == 1) {
-	logRemap("enter_remap: toplevel - saved_line_number=%d",_setup.sequence_number);
-	CONTROLLING_BLOCK(_setup).saved_line_number  =
-	    _setup.sequence_number;
-    } else {
-	logRemap("enter_remap into %d - saved_line_number=%d",
-		 _setup.remap_level,
-		 EXECUTING_BLOCK(_setup).saved_line_number);
-	CONTROLLING_BLOCK(_setup).saved_line_number  =
-	    EXECUTING_BLOCK(_setup).saved_line_number;
-    }
+    logRemap("enter_remap into %d - saved_line_number=%d",
+	     _setup.remap_level, _setup.sequence_number);
+    CONTROLLING_BLOCK(_setup).saved_line_number = _setup.sequence_number;
     _setup.sequence_number = 0;
     return INTERP_OK;
 }
@@ -2437,19 +2441,10 @@ int Interp::enter_remap(void)
 int Interp::leave_remap(void)
 {
     // restore the line number where remap was found
-    if (_setup.remap_level == 1) {
-	// dropping to top level, so pass onto _setup
-	_setup.sequence_number = CONTROLLING_BLOCK(_setup).saved_line_number;
-	logRemap("leave_remap into toplevel, restoring seqno=%d",_setup.sequence_number);
+    logRemap("leave_remap from %d propagate saved_line_number=%d",
+	     _setup.remap_level, CONTROLLING_BLOCK(_setup).saved_line_number);
 
-    } else {
-	// just dropping a nesting level
-	EXECUTING_BLOCK(_setup).saved_line_number =
-	    CONTROLLING_BLOCK(_setup).saved_line_number ;
-	logRemap("leave_remap from %d propagate saved_line_number=%d",
-		 _setup.remap_level,
-		 EXECUTING_BLOCK(_setup).saved_line_number);
-    }
+    _setup.sequence_number = CONTROLLING_BLOCK(_setup).saved_line_number;
     _setup.blocks[_setup.remap_level].executing_remap = NULL;
     _setup.remap_level--; // drop one nesting level
     if (_setup.remap_level < 0) {
@@ -2457,106 +2452,6 @@ int Interp::leave_remap(void)
     }
     return INTERP_OK;
 }
-
-
-void Interp::program_end_cleanup(setup_pointer settings) {
-    int index;
-
-    settings->current_x += settings->origin_offset_x;
-    settings->current_y += settings->origin_offset_y;
-    settings->current_z += settings->origin_offset_z;
-    settings->AA_current += settings->AA_origin_offset;
-    settings->BB_current += settings->BB_origin_offset;
-    settings->CC_current += settings->CC_origin_offset;
-    settings->u_current += settings->u_origin_offset;
-    settings->v_current += settings->v_origin_offset;
-    settings->w_current += settings->w_origin_offset;
-    rotate(&settings->current_x, &settings->current_y, settings->rotation_xy);
-
-    settings->origin_index = 1;
-    settings->parameters[5220] = 1.0;
-    settings->origin_offset_x = USER_TO_PROGRAM_LEN(settings->parameters[5221]);
-    settings->origin_offset_y = USER_TO_PROGRAM_LEN(settings->parameters[5222]);
-    settings->origin_offset_z = USER_TO_PROGRAM_LEN(settings->parameters[5223]);
-    settings->AA_origin_offset = USER_TO_PROGRAM_ANG(settings->parameters[5224]);
-    settings->BB_origin_offset = USER_TO_PROGRAM_ANG(settings->parameters[5225]);
-    settings->CC_origin_offset = USER_TO_PROGRAM_ANG(settings->parameters[5226]);
-    settings->u_origin_offset = USER_TO_PROGRAM_LEN(settings->parameters[5227]);
-    settings->v_origin_offset = USER_TO_PROGRAM_LEN(settings->parameters[5228]);
-    settings->w_origin_offset = USER_TO_PROGRAM_LEN(settings->parameters[5229]);
-    settings->rotation_xy = settings->parameters[5230];
-
-    rotate(&settings->current_x, &settings->current_y, -settings->rotation_xy);
-    settings->current_x -= settings->origin_offset_x;
-    settings->current_y -= settings->origin_offset_y;
-    settings->current_z -= settings->origin_offset_z;
-    settings->AA_current -= settings->AA_origin_offset;
-    settings->BB_current -= settings->BB_origin_offset;
-    settings->CC_current -= settings->CC_origin_offset;
-    settings->u_current -= settings->u_origin_offset;
-    settings->v_current -= settings->v_origin_offset;
-    settings->w_current -= settings->w_origin_offset;
-
-    SET_G5X_OFFSET(settings->origin_index,
-                   settings->origin_offset_x,
-                   settings->origin_offset_y,
-                   settings->origin_offset_z,
-                   settings->AA_origin_offset,
-                   settings->BB_origin_offset,
-                   settings->CC_origin_offset,
-                   settings->u_origin_offset,
-                   settings->v_origin_offset,
-                   settings->w_origin_offset);
-    SET_XY_ROTATION(settings->rotation_xy);
-
-    if (settings->plane != CANON_PLANE_XY) {
-        SELECT_PLANE(CANON_PLANE_XY);
-        settings->plane = CANON_PLANE_XY;
-    }
-
-    settings->distance_mode = MODE_ABSOLUTE;
-
-    settings->feed_mode = UNITS_PER_MINUTE;
-    SET_FEED_MODE(0);
-    settings->feed_rate = 0;
-    SET_FEED_RATE(0);
-
-    if (!settings->feed_override) {
-        ENABLE_FEED_OVERRIDE();
-        settings->feed_override = true;
-    }
-    if (!settings->speed_override) {
-        ENABLE_SPEED_OVERRIDE();
-        settings->speed_override = true;
-    }
-
-    settings->cutter_comp_side = false;
-    settings->cutter_comp_firstmove = true;
-
-    STOP_SPINDLE_TURNING();
-    settings->spindle_turning = CANON_STOPPED;
-
-    /* turn off FPR */
-    SET_SPINDLE_MODE(0);
-
-    settings->motion_mode = G_1;
-
-    if (settings->mist) {
-        MIST_OFF();
-        settings->mist = false;
-    }
-    if (settings->flood) {
-        FLOOD_OFF();
-        settings->flood = false;
-    }
-
-/*10*/
-    if (settings->disable_g92_persistence)
-	// Clear G92/G52 offset
-	for (index=5210; index<=5219; index++)
-	    settings->parameters[index] = 0;
-}
-
 
 int Interp::on_abort(int reason, const char *message)
 {
@@ -2570,9 +2465,6 @@ int Interp::on_abort(int reason, const char *message)
     _setup.toolchange_flag = false;
     _setup.probe_flag = false;
     _setup.input_flag = false;
-
-    logDebug("interp: %s simulating M30\n", __func__);
-    program_end_cleanup(&_setup);
 
     if (_setup.on_abort_command == NULL)
 	return -1;

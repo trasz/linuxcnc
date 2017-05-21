@@ -121,7 +121,7 @@ SUBDIRS := \
     hal/user_comps/huanyang-vfd \
     \
     emc/usr_intf/axis emc/usr_intf/touchy emc/usr_intf/stepconf emc/usr_intf/pncconf \
-    emc/usr_intf/gremlin \ emc/usr_intf/gscreen \ emc/usr_intf/pyui \
+    emc/usr_intf/gremlin emc/usr_intf/gscreen emc/usr_intf/pyui \
     emc/usr_intf/gmoccapy \
     emc/usr_intf emc/nml_intf emc/task emc/iotask emc/kinematics emc/tp emc/canterp \
     emc/motion emc/ini emc/rs274ngc emc/sai emc emc/pythonplugin \
@@ -253,6 +253,7 @@ INFILES = \
 	../share/applications/linuxcnc.desktop \
 	../share/applications/linuxcnc-latency.desktop \
 	../scripts/linuxcnc_var \
+	../scripts/halcmd_twopass \
 
 $(INFILES): %: %.in config.status
 	@./config.status --file=$@
@@ -267,6 +268,7 @@ HEADERS := \
     config.h \
     emc/ini/emcIniFile.hh \
     emc/ini/iniaxis.hh \
+    emc/ini/inijoint.hh \
     emc/ini/initool.hh \
     emc/ini/initraj.hh \
     emc/ini/inihal.hh \
@@ -284,6 +286,7 @@ HEADERS := \
     emc/tp/blendmath.h \
     emc/motion/emcmotcfg.h \
     emc/motion/motion.h \
+    emc/motion/simple_tp.h \
     emc/motion/usrmotintf.h \
     emc/nml_intf/canon.hh \
     emc/nml_intf/canon_position.hh \
@@ -480,13 +483,13 @@ ifeq ($(BUILD_SYS),uspace)
 	chown root ../bin/rtapi_app
 	chmod 4750 ../bin/rtapi_app
 else
-	chown root ../bin/linuxcnc_module_helper
-	chmod 4750 ../bin/linuxcnc_module_helper
 	chown root ../bin/pci_write
 	chmod 4750 ../bin/pci_write
 	chown root ../bin/pci_read
 	chmod 4750 ../bin/pci_read
 endif
+	chown root ../bin/linuxcnc_module_helper
+	chmod 4750 ../bin/linuxcnc_module_helper
 
 # These rules allows a header file from this directory to be installed into
 # ../include.  A pair of rules like these will exist in the Submakefile
@@ -574,6 +577,7 @@ install-kernel-indep: install-dirs
 	$(FILE) objects/*.msg $(DESTDIR)$(tcldir)/msgs
 	$(EXE) ../scripts/realtime $(DESTDIR)$(initd_dir)
 	$(EXE) ../scripts/halrun $(DESTDIR)$(bindir)
+	$(EXE) ../scripts/halcmd_twopass $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/haltcl $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/simulate_probe $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/sim_pin $(DESTDIR)$(bindir)
@@ -599,6 +603,7 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/pyvcp_demo $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/gladevcp_demo $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/linuxcncmkdesktop $(DESTDIR)$(bindir)
+	$(EXE) ../scripts/update_ini $(DESTDIR)$(bindir)
 	$(FILE) $(filter ../lib/%.a ../lib/%.so.0,$(TARGETS)) $(DESTDIR)$(libdir)
 	cp --no-dereference $(filter ../lib/%.so, $(TARGETS)) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
@@ -608,7 +613,6 @@ install-kernel-indep: install-dirs
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
 	$(EXE) ../nc_files/M101 $(DESTDIR)$(ncfilesdir)
 	$(FILE) ../tcl/TkLinuxCNC $(DESTDIR)/etc/X11/app-defaults
-	$(FILE) ../app-defaults/XEmc $(DESTDIR)/etc/X11/app-defaults
 	$(FILE) Makefile.modinc $(DESTDIR)$(datadir)/linuxcnc
 	$(EXE) $(TCL) $(DESTDIR)$(tcldir)
 	$(FILE) ../tcl/hal.so $(DESTDIR)$(tcldir)
@@ -659,6 +663,7 @@ install-python: install-dirs
 	$(EXE) ../bin/pncconf $(DESTDIR)$(bindir)
 	$(EXE) ../bin/pyui $(DESTDIR)$(bindir)
 	$(EXE) ../bin/hal_input $(DESTDIR)$(bindir)
+	$(EXE) ../bin/mitsub_vfd $(DESTDIR)$(bindir)
 	$(EXE) ../bin/pyvcp $(DESTDIR)$(bindir)
 	$(EXE) ../bin/gladevcp $(DESTDIR)$(bindir)
 	$(EXE) ../bin/axis $(DESTDIR)$(bindir)
@@ -671,6 +676,8 @@ install-python: install-dirs
 	$(EXE) ../bin/touchy $(DESTDIR)$(bindir)
 	$(EXE) ../bin/gscreen $(DESTDIR)$(bindir)
 	$(EXE) ../bin/gmoccapy $(DESTDIR)$(bindir)
+	$(EXE) ../bin/teach-in $(DESTDIR)$(bindir)
+	$(EXE) ../bin/scorbot-er-3 $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(VISMACH_PY)) $(DESTDIR)$(bindir)
 	$(FILE) ../share/linuxcnc/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/linuxcnc
 	$(FILE) emc/usr_intf/axis/etc/axis_light_background $(DESTDIR)$(docsdir)
@@ -686,9 +693,9 @@ install-kernel-dep:
 		$(DESTDIR)$(bindir) \
 		$(DESTDIR)$(sysconfdir)/linuxcnc
 	$(FILE) ../rtlib/*$(MODULE_EXT) $(DESTDIR)$(EMC2_RTLIB_DIR)
+	$(SETUID) ../bin/linuxcnc_module_helper $(DESTDIR)$(bindir)
 ifneq "$(BUILD_SYS)" "uspace"
 	$(FILE) Module.symvers $(DESTDIR)$(EMC2_RTLIB_DIR)
-	$(SETUID) ../bin/linuxcnc_module_helper $(DESTDIR)$(bindir)
 	$(SETUID) ../bin/pci_write $(DESTDIR)$(bindir)
 	$(SETUID) ../bin/pci_read $(DESTDIR)$(bindir)
 else
@@ -825,7 +832,7 @@ hal_ppmc-objs := hal/drivers/hal_ppmc.o $(MATHSTUB)
 
 obj-$(CONFIG_HOSTMOT2) += hostmot2.o hm2_test.o hm2_pci.o hm2_7i43.o hm2_7i90.o setsserial.o
 ifeq ($(BUILD_SYS),uspace)
-obj-$(CONFIG_HOSTMOT2) += hm2_eth.o hm2_spi.o
+obj-$(CONFIG_HOSTMOT2) += hm2_eth.o hm2_spi.o hm2_rpspi.o hal_bb_gpio.o
 endif
 hostmot2-objs :=			  \
     hal/drivers/mesa-hostmot2/hostmot2.o  \
@@ -866,6 +873,12 @@ hm2_eth-objs  :=			  \
 hm2_spi-objs  :=			  \
     hal/drivers/mesa-hostmot2/hm2_spi.o   \
     $(MATHSTUB)
+hm2_rpspi-objs  :=			  \
+    hal/drivers/mesa-hostmot2/hm2_rpspi.o   \
+    $(MATHSTUB)
+hal_bb_gpio-objs  :=			  \
+    hal/drivers/hal_bb_gpio.o		  \
+    $(MATHSTUB)
 hm2_test-objs :=			  \
     hal/drivers/mesa-hostmot2/hm2_test.o  \
     hal/drivers/mesa-hostmot2/bitfile.o   \
@@ -903,14 +916,17 @@ obj-m += 5axiskins.o
 obj-m += maxkins.o
 maxkins-objs := emc/kinematics/maxkins.o
 
-obj-m += gantrykins.o
-gantrykins-objs := emc/kinematics/gantrykins.o
-
 obj-m += rotatekins.o
 rotatekins-objs := emc/kinematics/rotatekins.o
 
 obj-m += tripodkins.o
 tripodkins-objs := emc/kinematics/tripodkins.o
+
+obj-m += corexykins.o
+corexykins-objs := emc/kinematics/corexykins.o
+
+obj-m += lineardeltakins.o
+lineardeltakins-objs := emc/kinematics/lineardeltakins.o
 
 obj-m += genhexkins.o
 genhexkins-objs := emc/kinematics/genhexkins.o
@@ -932,6 +948,21 @@ scarakins-objs := emc/kinematics/scarakins.o
 scarakins-objs += libnml/posemath/_posemath.o
 scarakins-objs += libnml/posemath/sincos.o $(MATHSTUB)
 
+obj-m += rotarydeltakins.o
+rotarydeltakins-objs := emc/kinematics/rotarydeltakins.o
+rotarydeltakins-objs += libnml/posemath/_posemath.o
+rotarydeltakins-objs += libnml/posemath/sincos.o $(MATHSTUB)
+
+obj-m += xyzac-trt-kins.o
+xyzac-trt-kins-objs := emc/kinematics/xyzac-trt-kins.o
+obj-m += xyzbc-trt-kins.o
+xyzbc-trt-kins-objs := emc/kinematics/xyzbc-trt-kins.o
+obj-m += rosekins.o
+rosekins-objs := emc/kinematics/rosekins.o
+
+obj-m += scorbot-kins.o
+scorbot-kins-objs := emc/kinematics/scorbot-kins.o
+
 obj-$(CONFIG_MOTMOD) += motmod.o
 motmod-objs := emc/kinematics/cubic.o
 motmod-objs += emc/tp/tc.o
@@ -943,6 +974,7 @@ motmod-objs += emc/motion/motion.o
 motmod-objs += emc/motion/command.o
 motmod-objs += emc/motion/control.o
 motmod-objs += emc/motion/homing.o
+motmod-objs += emc/motion/simple_tp.o
 motmod-objs += emc/motion/emcmotutil.o
 motmod-objs += emc/motion/stashf.o
 motmod-objs += emc/motion/dbuf.o
@@ -1037,13 +1069,19 @@ endif
 ../rtlib/trivkins$(MODULE_EXT): $(addprefix objects/rt,$(trivkins-objs))
 ../rtlib/5axiskins$(MODULE_EXT): $(addprefix objects/rt,$(5axiskins-objs))
 ../rtlib/maxkins$(MODULE_EXT): $(addprefix objects/rt,$(maxkins-objs))
-../rtlib/gantrykins$(MODULE_EXT): $(addprefix objects/rt,$(gantrykins-objs))
 ../rtlib/rotatekins$(MODULE_EXT): $(addprefix objects/rt,$(rotatekins-objs))
 ../rtlib/tripodkins$(MODULE_EXT): $(addprefix objects/rt,$(tripodkins-objs))
+../rtlib/corexykins$(MODULE_EXT): $(addprefix objects/rt,$(corexykins-objs))
+../rtlib/lineardeltakins$(MODULE_EXT): $(addprefix objects/rt,$(lineardeltakins-objs))
 ../rtlib/genhexkins$(MODULE_EXT): $(addprefix objects/rt,$(genhexkins-objs))
 ../rtlib/genserkins$(MODULE_EXT): $(addprefix objects/rt,$(genserkins-objs))
 ../rtlib/pumakins$(MODULE_EXT): $(addprefix objects/rt,$(pumakins-objs))
 ../rtlib/scarakins$(MODULE_EXT): $(addprefix objects/rt,$(scarakins-objs))
+../rtlib/rotarydeltakins$(MODULE_EXT): $(addprefix objects/rt,$(rotarydeltakins-objs))
+../rtlib/xyzac-trt-kins$(MODULE_EXT): $(addprefix objects/rt,$(xyzac-trt-kins-objs))
+../rtlib/xyzbc-trt-kins$(MODULE_EXT): $(addprefix objects/rt,$(xyzbc-trt-kins-objs))
+../rtlib/rosekins$(MODULE_EXT): $(addprefix objects/rt,$(rosekins-objs))
+../rtlib/scorbot-kins$(MODULE_EXT): $(addprefix objects/rt,$(scorbot-kins-objs))
 ../rtlib/hal_gm$(MODULE_EXT): $(addprefix objects/rt,$(hal_gm-objs))
 ../rtlib/hostmot2$(MODULE_EXT): $(addprefix objects/rt,$(hostmot2-objs))
 ../rtlib/hm2_test$(MODULE_EXT): $(addprefix objects/rt,$(hm2_test-objs))
@@ -1055,6 +1093,8 @@ endif
 ../rtlib/hal_ppmc$(MODULE_EXT): $(addprefix objects/rt,$(hal_ppmc-objs))
 ../rtlib/hm2_eth$(MODULE_EXT): $(addprefix objects/rt,$(hm2_eth-objs))
 ../rtlib/hm2_spi$(MODULE_EXT): $(addprefix objects/rt,$(hm2_spi-objs))
+../rtlib/hm2_rpspi$(MODULE_EXT): $(addprefix objects/rt,$(hm2_rpspi-objs))
+../rtlib/hal_bb_gpio$(MODULE_EXT): $(addprefix objects/rt,$(hal_bb_gpio-objs))
 
 ifeq ($(TRIVIAL_BUILD),no)
 READ_RTDEPS = $(wildcard $(RTDEPS))
