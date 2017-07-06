@@ -64,13 +64,17 @@ static uid_t euid, ruid;
 
 WithRoot::WithRoot() {
     if(!level++) {
+#ifdef __linux__
         setfsuid(euid);
+#endif
     }
 }
 
 WithRoot::~WithRoot() {
     if(!--level) {
+#ifdef __linux__
         setfsuid(ruid);
+#endif
     }
 }
 
@@ -505,7 +509,9 @@ int main(int argc, char **argv) {
     ruid = getuid();
     euid = geteuid();
     setresuid(euid, euid, ruid);
+#ifdef __linux__
     setfsuid(ruid);
+#endif
     vector<string> args;
     for(int i=1; i<argc; i++) { args.push_back(string(argv[i])); }
 
