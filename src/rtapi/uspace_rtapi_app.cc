@@ -45,7 +45,10 @@
 #include <sys/resource.h>
 #include <sys/mman.h>
 #include <malloc.h>
+
+#ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
+#endif
 
 #include "config.h"
 
@@ -712,12 +715,14 @@ static int harden_rt()
 
     WITH_ROOT;
 #if defined(__x86_64__) || defined(__i386__)
+#if HAVE_SYS_IO_H
     if (iopl(3) < 0) {
         rtapi_print_msg(RTAPI_MSG_ERR,
                         "cannot gain I/O privileges - "
                         "forgot 'sudo make setuid'?\n");
         return -EPERM;
     }
+#endif
 #endif
 
     struct sigaction sig_act = {};
@@ -736,11 +741,13 @@ static int harden_rt()
 		  "setrlimit: %s - core dumps may be truncated or non-existant\n",
 		  strerror(errno));
 
+#ifdef HAVE_SYS_PRCTL_H
     // even when setuid root
     if (prctl(PR_SET_DUMPABLE, 1) < 0)
 	rtapi_print_msg(RTAPI_MSG_WARN,
 		  "prctl(PR_SET_DUMPABLE) failed: no core dumps will be created - %d - %s\n",
 		  errno, strerror(errno));
+#endif
 
     configure_memory();
 
